@@ -1,5 +1,5 @@
 # netUnicorn
-System code for the paper #39.
+System code for the paper #181.
 Structure of the folder:
 - 'examples': contains the example of platform usage
 - 'netunicorn-base': common module for all other modules
