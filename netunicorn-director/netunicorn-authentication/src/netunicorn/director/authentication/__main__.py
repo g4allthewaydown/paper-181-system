@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 import asyncpg
@@ -16,7 +17,7 @@ from pydantic import BaseModel
 logger = get_logger("netunicorn.director.authentication")
 
 app = FastAPI()
-db_conn_pool: Optional[asyncpg.Pool] = None
+db_conn_pool: asyncpg.Pool
 
 
 class AuthenticationRequest(BaseModel):
@@ -31,7 +32,7 @@ async def health_check() -> str:
 
 
 @app.on_event("startup")
-async def startup():
+async def startup() -> None:
     global db_conn_pool
     db_conn_pool = await asyncpg.create_pool(
         user=DATABASE_USER,
@@ -42,12 +43,12 @@ async def startup():
 
 
 @app.on_event("shutdown")
-async def shutdown():
+async def shutdown() -> None:
     await db_conn_pool.close()
 
 
 @app.post("/auth", status_code=200)
-async def auth(data: AuthenticationRequest):
+async def auth(data: AuthenticationRequest) -> None:
     sql_query = "SELECT hash FROM authentication WHERE username = $1"
     result: Optional[str] = await db_conn_pool.fetchval(sql_query, data.username)
     if result is not None:
@@ -62,4 +63,7 @@ async def auth(data: AuthenticationRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=26516)
+    ip = os.environ.get("NETUNICORN_AUTHENTICATION_IP", "0.0.0.0")
+    port = int(os.environ.get("NETUNICORN_AUTHENTICATION_PORT", "26516"))
+    logger.info(f"Starting gateway on {ip}:{port}")
+    uvicorn.run(app, host=ip, port=port)

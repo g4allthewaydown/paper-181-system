@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import uuid
 from copy import deepcopy
-from typing import Collection, List, Union
-
-from returns.result import Result
+from typing import Collection, List, Optional, Set, Union
+from warnings import warn
 
 from .environment_definitions import DockerImage, EnvironmentDefinition
-from .task import Task, TaskDispatcher
+from .task import TaskElement
 
-TaskElement = Union[Task, TaskDispatcher]
 PipelineElement = Union[TaskElement, Collection[TaskElement]]
-PipelineElementResult = Union[Result, Collection[Result]]
-PipelineResult = Collection[PipelineElementResult]
 
 
 class Pipeline:
@@ -35,7 +31,7 @@ class Pipeline:
         tasks: Collection[PipelineElement] = (),
         early_stopping: bool = True,
         report_results: bool = True,
-        environment_definition: EnvironmentDefinition = None,
+        environment_definition: Optional[EnvironmentDefinition] = None,
     ):
         """
         Initialize Pipeline with a tuple of Tasks or TaskDispatchers and early_stopping flag.
@@ -44,6 +40,7 @@ class Pipeline:
         :param report_results: whether executor should connect director services to report pipeline results after exec
         """
         self.name = str(uuid.uuid4())
+        self.task_names: Set[str] = set()
         self.early_stopping = early_stopping
         self.tasks: List[List[TaskElement]] = []
         self.report_results = report_results
@@ -59,6 +56,15 @@ class Pipeline:
             element = list(element)
         return element
 
+    def __check_tasks_names(self, stage: List[TaskElement]) -> None:
+        for task in stage:
+            if task.name in self.task_names:
+                warn(
+                    f"Task with name {task.name} already exists in the current pipeline {self.__str__()}. "
+                    "Please, note that execution results of these tasks could be mixed or overwritten."
+                )
+            self.task_names.add(task.name)
+
     def then(self, element: PipelineElement) -> Pipeline:
         """
         Add a task or list of tasks to the end of the pipeline.
@@ -66,6 +72,7 @@ class Pipeline:
         :return: self
         """
         element = self.__element_to_stage(element)
+        self.__check_tasks_names(element)
         self.tasks.append(element)
         return self
 
@@ -76,8 +83,8 @@ class Pipeline:
         """
         return Pipeline(deepcopy(self.tasks), self.early_stopping)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Pipeline({self.name}): {self.tasks}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self)

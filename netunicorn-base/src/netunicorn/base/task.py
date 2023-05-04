@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import copy
 import uuid
-from typing import Any, Collection, List, Union
+from abc import ABC, abstractmethod
+from typing import Any, List, Optional, Union
 
-from returns.result import Failure, Result, Success
+from returns.result import Failure, Success
 
-from .minions import Minion
-from .utils import safe
+from .nodes import Node
+from .types import PipelineResult
 
 # Keep classes for export
 Success = Success
 Failure = Failure
 
 
-class Task:
+class Task(ABC):
     """
     This is a base class for all tasks. All new task classes should inherit from this class.
     The task instance should encapsulate all the logic and data needed to execute the task.
@@ -33,33 +35,42 @@ class Task:
     requirements: List[str] = []
 
     # this variable would be overwritten before task start with results of previous tasks
-    previous_steps: List[Union[Result, Collection[Result]]] = []
+    # format: {task_name: [Result, Result, ...]}
+    previous_steps: PipelineResult = {}
 
-    def __call__(self):
+    def __init__(self, name: Optional[str] = None) -> None:
+        """
+        This is a constructor for the task. Any variables (state) that `run` method should use should be provided here.
+        Please, do not forget to call `super().__init__()` in your implementation.
+        """
+        self.name = name or str(uuid.uuid4())  # Each task should have a name
+        self.requirements = copy.deepcopy(self.requirements)
+
+    def __call__(self) -> Any:
         return self.run()
 
-    def __str__(self):
-        return self.name
+    def __repr__(self) -> str:
+        type_ = type(self)
+        module = type_.__module__
+        qualname = type_.__qualname__
+        return f"<{module}.{qualname} with name {self.name}>"
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
     def add_requirement(self, command: str) -> Task:
         """
-        This method adds a requirement to the task.
+        This method adds a requirement to the local requirements of the task.
         :param command:
         :return:
         """
+        self.requirements = copy.deepcopy(
+            self.requirements
+        )  # make it instance-specific
         self.requirements.append(command)
         return self
 
-    def __init__(self):
-        """
-        ## This method is to be overridden by your implementation. ##
-        This is a constructor for the task. Any variables (state) that `run` method should use should be provided here.
-        """
-        self.name = str(uuid.uuid4())  # Each task should have a name
-        self.run = safe(
-            self.run
-        )  # Each task should have its `run` method protected by `safe` decorator
-
+    @abstractmethod
     def run(self) -> Any:
         """
         ## This method is to be overridden by your implementation. ##
@@ -73,14 +84,34 @@ class Task:
         raise NotImplementedError
 
 
-class TaskDispatcher:
+class TaskDispatcher(ABC):
     """
-    This class is a wrapper for several tasks that are designed to implement the same functionality for different
-    architectures, platforms, etc. It is designed to be used as a base class for your task dispatcher.
+    This class is a wrapper for several tasks that are designed to implement the same functionality
+    but depend on node attributes. Most often you either want to use a specific
+    implementation for a specific architecture (e.g., different Tasks for Windows and Linux),
+    or instantiate a task with some specific parameters for a specific node (e.g., node-specific IP address).
+    You should implement your own TaskDispatcher class and override the dispatch method.
 
-    Dispatching is done by calling the dispatch method. This method should return the proper task for the minion
-    given minion information (such as architecture, platform, etc).
+    Dispatching is done by calling the dispatch method that you should implement.
     """
 
-    def dispatch(self, minion: Minion) -> Task:
+    def __init__(self, name: Optional[str] = None) -> None:
+        """
+        This is a constructor for the TaskDispatcher. Any variables (state) that `run` method of
+        task implementations should use should be provided here.
+        Please, do not forget to call `super().__init__()` in your implementation.
+        """
+        self.name = name or str(uuid.uuid4())  # Each task should have a name
+
+    @abstractmethod
+    def dispatch(self, node: Node) -> Task:
+        """
+        This method takes a node and should return and instance of the task that is designed to be executed on this node.
+        The instance could depend on the node information (such as architecture, platform, properties, etc).
+        :param node: Node object
+        :return: Task object
+        """
         raise NotImplementedError
+
+
+TaskElement = Union[Task, TaskDispatcher]
